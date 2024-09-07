@@ -1,0 +1,71 @@
+---
+- name: Deploy Web Server on VM1 and VM2
+  hosts: webservers
+  become: yes
+  tasks:
+    - name: Install Apache (apache2)
+      ansible.builtin.apt:
+        name: apache2
+        state: present
+        update_cache: yes
+
+    - name: Start and enable Apache
+      ansible.builtin.systemd:
+        name: apache2
+        enabled: true
+        state: started
+
+    - name: Configure Apache to listen on port 8080
+      ansible.builtin.lineinfile:
+        path: /etc/apache2/ports.conf
+        regexp: '^Listen 80'
+        line: 'Listen 8080'
+        create: yes
+
+    - name: Create the index.html for slave1 and slave2
+      ansible.builtin.copy:
+        dest: /var/www/html/index.html
+        content: |
+          {% if inventory_hostname == "slave1" %}
+          <html>
+          <head><title>Hello World</title></head>
+          <body><h1>Hello World from SJSU-1</h1></body>
+          </html>
+          {% elif inventory_hostname == "slave2" %}
+          <html>
+          <head><title>Hello World</title></head>
+          <body><h1>Hello World from SJSU-2</h1></body>
+          </html>
+          {% endif %}
+
+    - name: Create project.conf in both slaves
+      ansible.builtin.copy:
+        dest: /etc/apache2/sites-available/project.conf
+        content: |
+          <VirtualHost *:8080>
+            ServerAdmin webmaster@localhost
+            DocumentRoot /var/www/html
+
+            # Custom Error Log
+            ErrorLog ${APACHE_LOG_DIR}/project_error.log
+            CustomLog ${APACHE_LOG_DIR}/project_access.log combined
+            DirectoryIndex index.html
+
+            # Directory settings
+            <Directory /var/www/html>
+              Options Indexes FollowSymLinks
+              AllowOverride None
+              Require all granted
+            </Directory>
+          </VirtualHost>
+        mode: '0644'
+
+    - name: Enable project.conf site
+      ansible.builtin.command:
+        cmd: a2ensite project.conf
+        creates: /etc/apache2/sites-enabled/project.conf
+
+    - name: Restart Apache to apply changes
+      ansible.builtin.systemd:
+        name: apache2
+        state: restarted
